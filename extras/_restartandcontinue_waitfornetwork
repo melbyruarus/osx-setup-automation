@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Example Daemon Starter
+. /etc/rc.common
+
+CheckForNetwork
+
+count=0
+
+while [ $count -lt $1 ]
+do
+	NETWORKUP=
+	CheckForNetwork
+
+	((count++))
+
+	if [ "${NETWORKUP}" == "-YES-" ]
+	then
+		exit 0
+	fi
+
+	sleep 1
+done
+
+exit 1

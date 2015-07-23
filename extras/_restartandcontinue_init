@@ -1,0 +1,72 @@
+#!/usr/bin/python
+
+import sys
+import getpass
+import os
+import time
+import pexpect
+import re
+import subprocess
+
+user = sys.argv[1]
+server = sys.argv[2]
+token = sys.argv[3]
+args_to_pass = sys.argv[4:]
+password = password = getpass.getpass("password:")
+
+__install_dir__ = os.path.dirname(os.path.realpath(__file__))
+__next_command__ = os.path.join(__install_dir__, "_restartandcontinue_loginwindow")
+
+__bundleid__ = "nz.co.ruarus.restartandcontinue.onnextboot"
+__plist_path__ = "/Library/LaunchAgents/%s.plist" % __bundleid__
+
+plist = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>%s</string>
+		<key>LimitLoadToSessionType</key>
+		<array>
+			<string>LoginWindow</string>
+		</array>
+		<key>ProgramArguments</key>
+		<array>
+			<string>%s</string>%s
+			<string>%s</string>
+			<string>%s</string>
+			<string>%s</string>
+			<string>%s</string>
+		</array>
+		<key>RunAtLoad</key>
+		<true/>
+	</dict>
+</plist>
+""" % (__bundleid__, __next_command__, "".join(["\n			<string>%s</string>" % x for x in args_to_pass]), user, __plist_path__, server, token)
+
+def install_hook():
+	f = open(__plist_path__, 'w')
+	f.write(plist)
+	f.close()
+
+output = subprocess.check_output(["fdesetup", "status"])
+
+if re.match(r'FileVault is On', output):
+	output = subprocess.check_output(["fdesetup", "supportsauthrestart"])
+
+	if re.match(r'true', output):
+		install_hook()
+
+		proc = pexpect.spawn("fdesetup authrestart")
+
+		proc.expect(":")
+		proc.sendline(password)
+		i = proc.expect(["authentication error.", pexpect.EOF])
+		if i == 0:
+			print "Auth error"
+	else:
+		print "Authenticated restart is not supported on this computer"
+else:
+	install_hook()
+
+	subprocess.call("reboot")

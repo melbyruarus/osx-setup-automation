@@ -1,0 +1,71 @@
+#!/usr/bin/python
+
+import BaseHTTPServer
+import uuid
+import threading
+import time
+import os
+
+data = {}
+clock = 0
+
+class Value:
+	data = None
+	expiry = -1
+
+	def __init__(self, data, expiry):
+		self.data = data
+		self.expiry = expiry
+
+class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+	def do_GET(s):
+		guid = s.path[s.path.rfind("/")+1:]
+
+		try:
+			payload = data[guid]
+			if payload != None:
+				s.send_response(200)
+				s.send_header("Content-type", "text/plain")
+				s.end_headers()
+
+				s.wfile.write(payload.data)
+
+				data.pop(guid, None)
+
+				return
+		except:
+		 	pass
+
+		s.send_response(404)
+		s.end_headers()
+
+	def do_POST(s):
+		s.send_response(200)
+		s.send_header("Content-type", "text/plain")
+		s.end_headers()
+
+		payload = s.rfile.read(int(s.headers['Content-Length']))
+		key = str(uuid.uuid4())
+		obj = Value(payload, clock + 300)
+
+		data[key] = obj
+
+		s.wfile.write(key)
+
+def timer():
+	time.sleep(1000)
+	clock += 1
+
+	for key in data:
+		if data[key].expiry < clock:
+			data.pop(key, None)
+
+threading.Thread(target=timer).start()
+ 
+web_server = BaseHTTPServer.HTTPServer(('0.0.0.0', 4566), MyHandler)
+
+try:
+	web_server.serve_forever()
+except:
+	print
+	os._exit(0)

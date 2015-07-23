@@ -1,0 +1,5 @@
+#!/bin/bash
+
+loggedInUser=$( ls -l /dev/console | awk '{print $3}' )
+loggedInPID=$( ps -axj | awk "/^$loggedInUser/ && /Dock.app/ {print \$2;exit}" )
+/bin/launchctl bsexec "${loggedInPID}" sudo -iu "${loggedInUser}" "osascript -e 'tell application \"System Events\" to keystroke \"m\"'"

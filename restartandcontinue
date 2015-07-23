@@ -1,0 +1,160 @@
+#!/usr/bin/python
+
+import getpass
+import os
+import subprocess
+import pexpect
+import sys
+import pipes
+import distutils.spawn
+
+__install_dir__ = os.path.dirname(os.path.realpath(__file__))
+
+def stringify_shell(cmd):
+	out = ""
+	sep = ""
+	for arg in cmd:
+		out += sep
+		out += pipes.quote(arg)
+		sep = " "
+
+	return out
+
+def build_su(user, cmd):
+	cmd = "su %s -c \"%s\"" % (user, stringify_shell(cmd))
+	# print cmd
+	return cmd
+
+def build_sudo(cmd):
+	cmd = "bash -c \"sudo %s\"" % stringify_shell(cmd)
+	# print cmd
+	return cmd
+
+def su(user, password, cmd):
+	out, status = pexpect.run(build_su(user, cmd), events={".*assword:" : password+"\r"}, withexitstatus=True) #TODO: Quote user?
+
+	return status
+
+def install_login_hook(home, cmd, cmd_args):
+	bundleid = "nz.co.ruarus.restartandcontinue.onnextlogin"
+	plist_path = "%s/Library/LaunchAgents/%s.plist" % (home, bundleid)
+	next_command = os.path.join(__install_dir__, "extras/_restartandcontinue_userlogin")
+
+	args_to_pass = [distutils.spawn.find_executable(cmd), cmd] + cmd_args
+
+	plist = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>%s</string>
+		<key>ProgramArguments</key>
+		<array>
+			<string>%s</string>
+			<string>%s</string>%s
+		</array>
+		<key>RunAtLoad</key>
+		<true/>
+	</dict>
+</plist>
+""" % (bundleid, next_command, plist_path, "".join(["\n			<string>%s</string>" % x for x in args_to_pass]))
+	
+	f = open(plist_path, 'w')
+	f.write(plist)
+	f.close()
+
+def install_boot_hook_and_restart(user, password, server, token, loginwindow_args):
+	next_command = os.path.join(__install_dir__, "extras/_restartandcontinue_init")
+	proc = pexpect.spawn(build_sudo([next_command, user, server, token] + loginwindow_args))
+
+	while True:
+		i = proc.expect([".*assword:", pexpect.EOF])
+		if i == 0:
+			proc.sendline(password)
+		else:
+			break
+
+def get_password(user):
+	while True:
+		password = getpass.getpass("your login password: ")
+
+		if su(user, password, ["exit"]) == 0:
+			return password
+		else:
+			print "Sorry, these credentials appear to be incorrect"
+
+def store_password(server, password):
+	try:
+		cmd = os.path.join(__install_dir__, "restartpersist")
+		proc = pexpect.spawn(cmd + " " + server)
+
+		proc.expect("data:")
+		proc.sendline(password)
+		proc.expect(pexpect.EOF)
+		
+		token = proc.before.strip()
+		if "\n" in token:
+			return None
+		return token
+	except Exception as e:
+		return None
+
+def main():
+	user = os.environ["USER"]
+	home = os.environ["HOME"]
+	password = ""
+
+	inwindow = False
+	keepprograms = False
+	clearterminal = False
+
+	start_of_cmds = 1
+	while sys.argv[start_of_cmds].startswith("--"):
+		opt = sys.argv[start_of_cmds][2:]
+
+		if opt == "inwindow":
+			inwindow = True
+		if opt == "keepprograms":
+			keepprograms = True
+		if opt == "clearterminal":
+			clearterminal = True
+
+		start_of_cmds += 1
+
+	server = sys.argv[start_of_cmds+0]
+
+	cmd = "echo"
+	cmd_args = []
+	if len(sys.argv) > start_of_cmds+1:
+		cmd = sys.argv[start_of_cmds+1]
+		cmd_args = sys.argv[start_of_cmds+2:]
+
+	if inwindow:
+		cmd_args = [cmd] + cmd_args
+		cmd = os.path.join(__install_dir__, "extras/_restartandcontinue_execinwindow")
+	
+	if not server.startswith("http"):
+		server = "http://" + server
+
+	print "NOTE: this command must be run as an administator who is able to log in to a graphical session on"
+	print "this computer from the login window. If it is not then it may result in unexpected behaviour."
+	print ""
+	print "In the case where a previous attempt to use this command has been unsuccessful you should execute"
+	print "'resetandcontinue --clean' to clean up."
+	print ""
+
+	loginwindow_args = ["--home", home]
+	if keepprograms:
+		loginwindow_args += ["--keepprograms"]
+	if clearterminal:
+		loginwindow_args += ["--clearterminal"]
+
+	password = get_password(user)
+	token = store_password(server, password)
+	if token == None:
+		print "unable to store password with service, please check the server details."
+		exit(1)
+	install_login_hook(home, cmd, cmd_args)
+	install_boot_hook_and_restart(user, password, server, token, loginwindow_args)
+
+main()

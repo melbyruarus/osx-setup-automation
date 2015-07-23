@@ -1,0 +1,67 @@
+#!/usr/bin/python
+
+import base64
+from Crypto.Cipher import AES
+from Crypto import Random
+import getpass
+import sys
+import urllib2
+
+BS = 16
+pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS) 
+unpad = lambda s : s[:-ord(s[len(s)-1:])]
+
+class AESCipher:
+    def __init__( self, key ):
+        self.key = key
+
+    def encrypt( self, raw ):
+        raw = pad(raw)
+        iv = Random.new().read( AES.block_size )
+        cipher = AES.new( self.key, AES.MODE_CBC, iv )
+        return base64.b64encode( iv + cipher.encrypt( raw ) ) 
+
+    def decrypt( self, enc ):
+        enc = base64.b64decode(enc)
+        iv = enc[:16]
+        cipher = AES.new(self.key, AES.MODE_CBC, iv )
+        return unpad(cipher.decrypt( enc[16:] ))
+
+
+
+decrypt = len(sys.argv) >= 4 and "--retreive" == sys.argv[1]
+
+if decrypt:
+	server = sys.argv[2]
+	token = sys.argv[3]
+
+	if not server.endswith("/"):
+		server += "/"
+
+	enckey = token.split(".")[0]
+	guid = token.split(".")[1]
+
+	enc = urllib2.urlopen(url=server+guid).read()
+
+	key = base64.b64decode(enckey)
+
+	a = AESCipher(key)
+
+	print a.decrypt(enc)
+else:
+	server = sys.argv[1]
+	if not server.endswith("/"):
+		server += "/"
+		
+	data = getpass.getpass("data:")
+
+	key = Random.new().read(32)
+
+	a = AESCipher(key)
+
+	enc = a.encrypt(data)
+	enckey = base64.b64encode(key)
+
+	guid = urllib2.urlopen(url=server, data=enc).read()
+
+	print "%s.%s" % (enckey, guid)

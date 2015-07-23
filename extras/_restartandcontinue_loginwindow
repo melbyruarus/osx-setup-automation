@@ -1,0 +1,61 @@
+#!/usr/bin/python
+
+import time
+import subprocess
+import sys
+import os
+
+__install_dir__ = os.path.dirname(os.path.realpath(__file__))
+
+subprocess.call([os.path.join(__install_dir__, "_restartandcontinue_waitfornetwork"), "20"])
+
+home = None
+keepprograms = False
+clearterminal = False
+
+start_of_cmds = 1
+while sys.argv[start_of_cmds].startswith("--"):
+	opt = sys.argv[start_of_cmds][2:]
+
+	if opt == "home":
+		start_of_cmds += 1
+		home = sys.argv[start_of_cmds]
+	if opt == "keepprograms":
+		keepprograms = True
+	if opt == "clearterminal":
+		clearterminal = True
+
+	start_of_cmds += 1
+
+if clearterminal:
+	subprocess.call(["rm", "-rf", "%s/Library/Saved Application State/com.apple.Terminal.savedState" % home])
+if not keepprograms:
+	subprocess.call(["find", "%s/Library/Preferences/ByHost/" % home, "-name", "com.apple.loginwindow*", "-exec", "rm", "{}", ";"])
+	subprocess.call(["rm", "-rf", "%s/Library/Saved Application State/com.apple.finder.savedState" % home])
+
+user = sys.argv[start_of_cmds+0]
+plist_path = sys.argv[start_of_cmds+1]
+server = sys.argv[start_of_cmds+2]
+token = sys.argv[start_of_cmds+3]
+password = subprocess.check_output([os.path.join(__install_dir__, "../restartpersist"), "--retreive", server, token])
+
+applescript = """tell application "Bluetooth Setup Assistant" to quit
+
+tell application "System Events"
+	keystroke "%s"
+	keystroke return
+	delay 2
+	keystroke "%s"
+	keystroke return
+end tell""" % (user, password)
+
+success = False
+
+for _ in range(0, 10):
+	time.sleep(5)
+
+	if subprocess.call(["osascript", "-e", applescript]) == 0:
+		success = True
+		break
+
+os.remove(plist_path)

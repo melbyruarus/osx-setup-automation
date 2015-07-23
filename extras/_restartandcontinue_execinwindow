@@ -1,0 +1,32 @@
+#!/usr/bin/python
+
+import sys
+import subprocess
+import pipes
+import time
+import os
+
+def stringify_shell(cmd):
+	out = ""
+	sep = ""
+	for arg in cmd:
+		out += sep
+		out += pipes.quote(arg)
+		sep = " "
+
+	return out
+
+cmd = sys.argv[1:]
+exc = stringify_shell(cmd).replace("\"", "\\\"")
+
+applescript = """tell application "Terminal"
+	if it is running then
+		do script "%s"
+	else
+		activate
+		tell application "System Events" to delay 4
+		do script "%s" in front window
+	end if
+end tell""" % (exc, exc)
+
+subprocess.check_output(["osascript", "-e", applescript])
